@@ -714,6 +714,10 @@ function Outfitter_OnLoad()
 	Outfitter_RegisterEvent(this, "UI_ERROR_MESSAGE", Outfitter_ProfessionCheck);
 	Outfitter_RegisterEvent(this, "LOOT_CLOSED", Outfitter_ProfessionUnequip);
 
+	-- For auto-equip complete outfit saved using Goblin Brainwashing Device
+	Outfitter_RegisterEvent(this, "GOSSIP_SHOW", Outfitter_GossipShown);
+	Outfitter_RegisterEvent(this, "GOSSIP_CLOSED", Outfitter_GossipClose);
+
 	-- Tabs
 
 	PanelTemplates_SetNumTabs(this, table.getn(gOutfitter_PanelFrames));
@@ -972,6 +976,73 @@ function Outfitter_ProfessionCheck(pEvent)
 			gOutfitter_CurrentProfessionOutfit = vOutfit;
 			Outfitter_WearOutfit(gOutfitter_CurrentProfessionOutfit);
 		end
+	end
+end
+
+OUT_washer_choice = nil
+
+OUT_original_GossipTitleButton_OnClick = GossipTitleButton_OnClick
+function OUT_GossipTitleButton_OnClick()
+	if this.type ~= "Available" and this.type ~= "Active" and GossipFrameNpcNameText:GetText() == "Goblin Brainwashing Device" then
+		local action_text = this:GetText()
+		local _,_,save_spec = string.find(action_text,"Save (%d+).. Specialization")
+		local _,_,load_spec = string.find(action_text,"Activate (%d+).. Specialization")
+		if save_spec then
+			OUT_washer_choice = { save = save_spec }
+		elseif load_spec then
+			OUT_washer_choice = { load = load_spec }
+		end
+	end
+	OUT_original_GossipTitleButton_OnClick()
+end
+GossipTitleButton_OnClick = OUT_GossipTitleButton_OnClick
+
+function Outfitter_GossipShown(pEvent)
+	if GossipFrameNpcNameText:GetText() == "Goblin Brainwashing Device" then
+		for i = 1, NUMGOSSIPBUTTONS do
+			local titleButton = getglobal("GossipTitleButton" .. i)
+			if titleButton:IsVisible() then
+				local text = titleButton:GetText();
+				local a1, a2, load_spec, mod, ta1, ta2, ta3 = string.find(text, "Activate (%d+)(..) Specialization *%((%d+)/(%d+)/(%d+)%)")
+				if load_spec then
+					local vOutfit, vCategoryID, vOutfitIndex = Outfitter_FindOutfitByGBD(load_spec);
+					if not vOutfit then
+					else
+						titleButton:SetText(format("Activate %d%s Specialization (%s/%s/%s) - %s", load_spec, mod, ta1, ta2, ta3, vOutfit.Name))
+						GossipResize(titleButton)
+					end
+				end
+			end
+		end
+	end
+end
+
+function Outfitter_GossipClose(pEvent)
+	if OUT_washer_choice then
+		if OUT_washer_choice.save then
+			local set = OUT_washer_choice.save;
+			local equippedNames = "";
+			for vCategoryID, vOutfits in gOutfitter_Settings.Outfits do
+				for vIndex, vOutfit in vOutfits do
+					if Outfitter_WearingOutfit(vOutfit) then
+						if vOutfit.CategoryID == "Complete" then
+							print("saving outfit "..vOutfit.Name.." for this spec");
+							vOutfit.GBD_Set = set;
+						end
+					end
+				end
+			end
+			OUT_washer_choice = nil;
+		elseif OUT_washer_choice.load then
+			local set = OUT_washer_choice.load
+			local vOutfit, vCategoryID, vOutfitIndex = Outfitter_FindOutfitByGBD(set);
+
+			if vOutfit == nil then
+			else
+				Outfitter_WearOutfit(vOutfit,vCategoryID);
+			end
+			OUT_washer_choice = nil;
+		end		
 	end
 end
 
@@ -2617,6 +2688,22 @@ function Outfitter_FindOutfitByName(pName)
 	for vCategoryID, vOutfits in gOutfitter_Settings.Outfits do
 		for vOutfitIndex, vOutfit in vOutfits do
 			if strlower(vOutfit.Name) == vLowerName then
+				return vOutfit, vCategoryID, vOutfitIndex;
+			end
+		end
+	end
+
+	return nil, nil;
+end
+
+function Outfitter_FindOutfitByGBD(setIndex)
+	if not setIndex then
+		return nil;
+	end
+
+	for vCategoryID, vOutfits in gOutfitter_Settings.Outfits do
+		for vOutfitIndex, vOutfit in vOutfits do
+			if tostring(vOutfit.GBD_Set) == tostring(setIndex) then
 				return vOutfit, vCategoryID, vOutfitIndex;
 			end
 		end
